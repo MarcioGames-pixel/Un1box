@@ -34,8 +34,8 @@ jobs:
       - name: Check out the pinned qemu-ios headers
         uses: actions/checkout@v4
         with:
-          repository: samhenrigold/qemu-ios
-          ref: e169e18b173c935c005a359bc7ea5592aebdebbd
+          repository: MarcioGames-pixel/qemu-ios
+          ref: e15a9a95e29773260c8ccb16484082c17da01d66
           path: .ci/qemu-ios
           persist-credentials: false
 
