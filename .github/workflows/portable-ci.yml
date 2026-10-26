@@ -1,0 +1,64 @@
+name: Portable compile and tests
+
+on:
+  push:
+    branches:
+      - main
+      - "revert-9-feat/cydia-sources-deb-install"
+      - "dev/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: Compile Portable and run regression tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out Un1box
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build zlib1g-dev git
+
+      - name: Check out the pinned qemu-ios headers
+        uses: actions/checkout@v4
+        with:
+          repository: samhenrigold/qemu-ios
+          ref: e169e18b173c935c005a359bc7ea5592aebdebbd
+          path: .ci/qemu-ios
+          persist-credentials: false
+
+      - name: Configure
+        run: |
+          cmake -S Portable -B build/ci-portable -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DLIGHTTOUCH_QEMU_SOURCE="$GITHUB_WORKSPACE/.ci/qemu-ios" \
+            -DLIGHTTOUCH_BUILD_TESTS=ON
+
+      - name: Compile
+        run: cmake --build build/ci-portable --parallel 2
+
+      - name: Run regression tests
+        run: ctest --test-dir build/ci-portable --output-on-failure
+
+      - name: Upload CTest diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-ctest-diagnostics
+          path: |
+            build/ci-portable/Testing/Temporary/LastTest.log
+            build/ci-portable/CMakeFiles/CMakeOutput.log
+          if-no-files-found: ignore
+          retention-days: 7
