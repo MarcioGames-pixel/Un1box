@@ -122,10 +122,14 @@ struct Engine {
     decltype(&qemu_ios_audio_capture_start) audio_start = nullptr;
     decltype(&qemu_ios_audio_capture_read) audio_read = nullptr;
     decltype(&qemu_ios_audio_capture_stop) audio_stop = nullptr;
-    // Optional: an engine built before the microphone tap lacks all three.
-    decltype(&qemu_ios_microphone_write) mic_write = nullptr;
-    decltype(&qemu_ios_microphone_flush) mic_flush = nullptr;
-    decltype(&qemu_ios_microphone_state) mic_state = nullptr;
+    // Optional extension: this QEMU fork may not export microphone input.
+    // Keep these signatures local so older engines without declarations still build.
+    using MicWriteFn = int (*)(const void *, int);
+    using MicFlushFn = void (*)();
+    using MicStateFn = int (*)(uint32_t *, uint32_t *, uint64_t *, uint64_t *);
+    MicWriteFn mic_write = nullptr;
+    MicFlushFn mic_flush = nullptr;
+    MicStateFn mic_state = nullptr;
     decltype(&qemu_ios_profile_start) profile_start = nullptr;
     decltype(&qemu_ios_profile_stop) profile_stop = nullptr;
     decltype(&qemu_ios_profile_status) profile_status = nullptr;
