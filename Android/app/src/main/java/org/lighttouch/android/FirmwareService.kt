@@ -76,15 +76,32 @@ class FirmwareService : Service() {
         val cache = File(cacheDir, "firmwarekit")
         val out = File(destination)
         try {
-            val catalog = File(filesDir, "firmware-catalog.json")
-            assets.open("firmware-catalog.json").use { input -> catalog.outputStream().use { input.copyTo(it) } }
-            run(libs, listOf("create", "--catalog", catalog.path, "--id", firmwareId, "--ipsw", ipsw, "--out", out.path,
-                "--helper", File(libs, "liblighttouch_oneshot.so").path, "--guest-tools", tools.path, "--cache", cache.path,
-                "--language", Locale.getDefault().toLanguageTag(),
-                // iOS 5 and later start at the Home screen, not Setup Assistant (ignored before 5, which has none)
-                "--skip-setup") +
-                // the iPod touch 2G's keybag boot (iOS 4) runs its SecureROM, which no IPSW carries
-                (if (bootrom.isNotEmpty()) listOf("--bootrom", bootrom) else emptyList()))
+            
+val catalog = File(filesDir, "firmware-catalog.json")
+assets.open("firmware-catalog.json").use { input ->
+    catalog.outputStream().use { input.copyTo(it) }
+}
+
+run(libs, listOf(
+    "create",
+    "--catalog", catalog.path,
+    "--id", firmwareId,
+    "--ipsw", ipsw,
+    "--out", out.path,
+    "--helper", File(libs, "liblighttouch_oneshot.so").path,
+    "--guest-tools", tools.path,
+    "--cache", cache.path,
+    "--language", Locale.getDefault().toLanguageTag(),
+
+    // Install jailbreak/Cydia bootstrap.
+    "--jailbreak"
+) +
+    (if (bootrom.isNotEmpty()) {
+        listOf("--bootrom", bootrom)
+    } else {
+        emptyList()
+    })
+)
             // create's own lease and boot logs; the device is the rest
             File(out, "work").let { writable(it); it.deleteRecursively() }
             done = total
