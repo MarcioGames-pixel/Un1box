@@ -118,14 +118,14 @@ jobs:
           HELPER="$LIGHTTOUCH_APP/Contents/MacOS/LightTouchDevice"
           GUEST_ARCHIVE="$LIGHTTOUCH_GUEST_ARCHIVE"
           GUEST_DIR="$RUNNER_TEMP/iphone4/guest"
-          GUEST_TOOLS="$GUEST_DIR/ipad-guest-tools"
+          GUEST_TOOLS="$GUEST_DIR/guest-tools"
           OUT="$RUNNER_TEMP/iphone4/output/n90ap-11D257"
 
           mkdir -p "$(dirname "$OUT")" "$GUEST_DIR"
           /usr/bin/aa extract -i "$GUEST_ARCHIVE" -d "$GUEST_DIR" \
             2>&1 | tee "$RUNNER_TEMP/iphone4/guest-extract.log"
           if [ ! -d "$GUEST_TOOLS" ]; then
-            echo "ERROR: guest.aar was extracted, but ipad-guest-tools is missing."
+            echo "ERROR: guest.aar was extracted, but guest-tools is missing."
             echo "Extracted guest archive contents:"
             find "$GUEST_DIR" -maxdepth 4 -print | head -300
             exit 1
