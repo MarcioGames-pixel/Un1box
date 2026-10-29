@@ -1,0 +1,141 @@
+name: Prepare iPhone 4 iOS 7.1.2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-n90ap-11D257
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Build n90ap-11D257 .itbase
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out Un1box
+        uses: actions/checkout@v4
+
+      - name: Download the official IPSW
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/iphone4"
+          cd "$RUNNER_TEMP/iphone4"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 30 --output iPhone3,1_7.1.2_11D257_Restore.ipsw \
+            "https://secure-appldnld.apple.com/iOS7.1/031-4812.20140627.cq6y8/iPhone3,1_7.1.2_11D257_Restore.ipsw"
+
+      - name: Verify IPSW against the Un1box catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPSW="$RUNNER_TEMP/iphone4/iPhone3,1_7.1.2_11D257_Restore.ipsw"
+          EXPECTED_BYTES=1204958925
+          EXPECTED_SHA1=81da17b3e893a61508fe203849b7e1f60e2127b1
+
+          ACTUAL_BYTES=$(stat -f%z "$IPSW")
+          ACTUAL_SHA1=$(shasum -a 1 "$IPSW" | awk '{print $1}')
+          test "$ACTUAL_BYTES" = "$EXPECTED_BYTES"
+          test "$ACTUAL_SHA1" = "$EXPECTED_SHA1"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          catalog = json.loads(Path("Portable/firmware/firmware-catalog.json").read_text())
+          entry = next((e for e in catalog["entries"] if e["id"] == "n90ap-11D257"), None)
+          assert entry is not None, "n90ap-11D257 is missing from the repository catalog"
+          assert entry["product_type"] == "iPhone3,1"
+          assert entry["board"] == "n90ap"
+          assert entry["version"] == "7.1.2" and entry["build"] == "11D257"
+          assert entry["source"]["bytes"] == 1204958925
+          assert entry["source"]["sha1"] == "81da17b3e893a61508fe203849b7e1f60e2127b1"
+          print("Catalog identity and IPSW checksum verified.")
+          PY
+
+      - name: Download the upstream LightTouch preparation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lighttouch"
+          cd "$RUNNER_TEMP/lighttouch"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output LightTouchMac-universal.zip \
+            "https://github.com/samhenrigold/LightTouchMac/releases/download/v1.0-2026.10.20b/LightTouchMac-universal.zip"
+          ditto -x -k LightTouchMac-universal.zip extracted
+          APP=$(find extracted -maxdepth 3 -type d -name "Light Touch.app" -print -quit)
+          test -n "$APP"
+          test -x "$APP/Contents/MacOS/firmwarekit"
+          test -f "$APP/Contents/Resources/firmware-catalog.json"
+          echo "LIGHTTOUCH_APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Confirm upstream tool supports this catalog entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$LIGHTTOUCH_APP/Contents/Resources/firmware-catalog.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          data = json.loads(Path(sys.argv[1]).read_text())
+          entry = next((e for e in data["entries"] if e["id"] == "n90ap-11D257"), None)
+          if entry is None:
+              raise SystemExit("The downloaded firmwarekit catalog does not contain n90ap-11D257; refusing to prepare.")
+          if entry.get("product_type") != "iPhone3,1" or entry.get("build") != "11D257":
+              raise SystemExit("Upstream catalog entry does not match the requested iPhone 4 firmware.")
+          print("Upstream firmwarekit catalog contains the exact target.")
+          PY
+
+      - name: Prepare the iPhone 4 system
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPSW="$RUNNER_TEMP/iphone4/iPhone3,1_7.1.2_11D257_Restore.ipsw"
+          FIRMWAREKIT="$LIGHTTOUCH_APP/Contents/MacOS/firmwarekit"
+          CATALOG="$LIGHTTOUCH_APP/Contents/Resources/firmware-catalog.json"
+          OUT="$RUNNER_TEMP/iphone4/output/n90ap-11D257"
+
+          mkdir -p "$(dirname "$OUT")"
+          "$FIRMWAREKIT" create \
+            --catalog "$CATALOG" \
+            --id n90ap-11D257 \
+            --ipsw "$IPSW" \
+            --out "$OUT" 2>&1 | tee "$RUNNER_TEMP/iphone4/create.log"
+
+          test -f "$OUT/device.lock.json"
+          "$FIRMWAREKIT" pack-base \
+            --base "$OUT" \
+            --out "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase" \
+            2>&1 | tee "$RUNNER_TEMP/iphone4/pack.log"
+
+          test -s "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase"
+          shasum -a 256 "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase" \
+            > "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase.sha256"
+
+          cat > "$RUNNER_TEMP/iphone4/output/BUILD-INFO.txt" <<EOF
+          Device: iPhone 4 GSM (iPhone3,1)
+          Board: n90ap
+          iOS: 7.1.2
+          Build: 11D257
+          Catalog ID: n90ap-11D257
+          Preparation tool: upstream LightTouch firmwarekit
+          IPSW SHA-1: 81da17b3e893a61508fe203849b7e1f60e2127b1
+          Note: Experimental firmware preparation; artifact is not proof of successful boot.
+          EOF
+
+      - name: Upload prepared system as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Un1box-iPhone4-iOS7.1.2-n90ap-11D257
+          path: |
+            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase
+            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase.sha256
+            ${{ runner.temp }}/iphone4/output/BUILD-INFO.txt
+            ${{ runner.temp }}/iphone4/create.log
+            ${{ runner.temp }}/iphone4/pack.log
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
