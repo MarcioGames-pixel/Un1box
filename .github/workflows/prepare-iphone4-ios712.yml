@@ -70,24 +70,30 @@ jobs:
           APP=$(find extracted -maxdepth 3 -type d -name "Light Touch.app" -print -quit)
           test -n "$APP"
           test -x "$APP/Contents/MacOS/firmwarekit"
-          test -f "$APP/Contents/Resources/firmware-catalog.json"
+          test -x "$APP/Contents/MacOS/LightTouchDevice"
+          test -f "$APP/Contents/Resources/Guest/guest.aar"
           echo "LIGHTTOUCH_APP=$APP" >> "$GITHUB_ENV"
 
-      - name: Confirm upstream tool supports this catalog entry
+      - name: Download and validate the upstream firmware catalog
         shell: bash
         run: |
           set -euo pipefail
-          python3 - "$LIGHTTOUCH_APP/Contents/Resources/firmware-catalog.json" <<'PY'
+          CATALOG="$RUNNER_TEMP/lighttouch/firmware-catalog.json"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$CATALOG" \
+            "https://raw.githubusercontent.com/samhenrigold/LightTouchMac/7c4a6dd4119de29db97e8158af7dcfe21495422f/LightTouchMac/Resources/firmware-catalog.json"
+          python3 - "$CATALOG" <<'PY'
           import json, sys
           from pathlib import Path
           data = json.loads(Path(sys.argv[1]).read_text())
           entry = next((e for e in data["entries"] if e["id"] == "n90ap-11D257"), None)
           if entry is None:
-              raise SystemExit("The downloaded firmwarekit catalog does not contain n90ap-11D257; refusing to prepare.")
+              raise SystemExit("Pinned upstream catalog does not contain n90ap-11D257; refusing to prepare.")
           if entry.get("product_type") != "iPhone3,1" or entry.get("build") != "11D257":
-              raise SystemExit("Upstream catalog entry does not match the requested iPhone 4 firmware.")
-          print("Upstream firmwarekit catalog contains the exact target.")
+              raise SystemExit("Pinned upstream catalog entry does not match iPhone3,1 / 11D257.")
+          print("Pinned upstream catalog contains the exact iPhone 4 target.")
           PY
+          echo "LIGHTTOUCH_CATALOG=$CATALOG" >> "$GITHUB_ENV"
 
       - name: Prepare the iPhone 4 system
         shell: bash
@@ -95,15 +101,27 @@ jobs:
           set -euo pipefail
           IPSW="$RUNNER_TEMP/iphone4/iPhone3,1_7.1.2_11D257_Restore.ipsw"
           FIRMWAREKIT="$LIGHTTOUCH_APP/Contents/MacOS/firmwarekit"
-          CATALOG="$LIGHTTOUCH_APP/Contents/Resources/firmware-catalog.json"
+          CATALOG="$LIGHTTOUCH_CATALOG"
+          HELPER="$LIGHTTOUCH_APP/Contents/MacOS/LightTouchDevice"
+          GUEST_ARCHIVE="$LIGHTTOUCH_APP/Contents/Resources/Guest/guest.aar"
+          GUEST_DIR="$RUNNER_TEMP/iphone4/guest"
+          GUEST_TOOLS="$GUEST_DIR/guest-tools"
           OUT="$RUNNER_TEMP/iphone4/output/n90ap-11D257"
 
-          mkdir -p "$(dirname "$OUT")"
-          "$FIRMWAREKIT" create \
-            --catalog "$CATALOG" \
-            --id n90ap-11D257 \
-            --ipsw "$IPSW" \
-            --out "$OUT" 2>&1 | tee "$RUNNER_TEMP/iphone4/create.log"
+          mkdir -p "$(dirname "$OUT")" "$GUEST_DIR"
+          /usr/bin/aa extract -i "$GUEST_ARCHIVE" -d "$GUEST_DIR" \
+            2>&1 | tee "$RUNNER_TEMP/iphone4/guest-extract.log"
+          test -d "$GUEST_TOOLS"
+          FIRMWAREKIT_IBOOT_PATCHER="$LIGHTTOUCH_APP/Contents/MacOS/iBoot32Patcher" \
+            "$FIRMWAREKIT" create \
+              --catalog "$CATALOG" \
+              --id n90ap-11D257 \
+              --ipsw "$IPSW" \
+              --out "$OUT" \
+              --helper "$HELPER" \
+              --guest-tools "$GUEST_TOOLS" \
+              --cache "$RUNNER_TEMP/iphone4/decrypt-cache" \
+              2>&1 | tee "$RUNNER_TEMP/iphone4/create.log"
 
           test -f "$OUT/device.lock.json"
           "$FIRMWAREKIT" pack-base \
@@ -136,6 +154,7 @@ jobs:
             ${{ runner.temp }}/iphone4/output/BUILD-INFO.txt
             ${{ runner.temp }}/iphone4/create.log
             ${{ runner.temp }}/iphone4/pack.log
+            ${{ runner.temp }}/iphone4/guest-extract.log
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
