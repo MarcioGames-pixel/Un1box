@@ -66,13 +66,25 @@ jobs:
           curl --fail --location --retry 5 --retry-all-errors \
             --output LightTouchMac-universal.zip \
             "https://github.com/samhenrigold/LightTouchMac/releases/download/v1.0-2026.10.20b/LightTouchMac-universal.zip"
+          ACTUAL_SHA256=$(shasum -a 256 LightTouchMac-universal.zip | awk '{print $1}')
+          EXPECTED_SHA256=b9d2293675df092abef4eb3af9ac0da334ff84868bea7496d2a1f8b1a481f515
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
           ditto -x -k LightTouchMac-universal.zip extracted
-          APP=$(find extracted -maxdepth 3 -type d -name "Light Touch.app" -print -quit)
+          APP=$(find extracted -type d -name "Light Touch.app" -print -quit)
           test -n "$APP"
           test -x "$APP/Contents/MacOS/firmwarekit"
           test -x "$APP/Contents/MacOS/LightTouchDevice"
-          test -f "$APP/Contents/Resources/Guest/guest.aar"
+          GUEST_ARCHIVE=$(find "$APP" -type f -name "guest.aar" -print -quit)
+          if [ -z "$GUEST_ARCHIVE" ]; then
+            echo "ERROR: The pinned LightTouchMac release ZIP has no guest.aar inside the app bundle."
+            echo "App bundle layout (first 250 entries):"
+            find "$APP/Contents" -maxdepth 5 -print | head -250
+            echo "ZIP entries mentioning Guest or guest:"
+            unzip -Z1 LightTouchMac-universal.zip | grep -iE 'guest|\.aar' | head -100 || true
+            exit 1
+          fi
           echo "LIGHTTOUCH_APP=$APP" >> "$GITHUB_ENV"
+          echo "LIGHTTOUCH_GUEST_ARCHIVE=$GUEST_ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Download and validate the upstream firmware catalog
         shell: bash
@@ -103,15 +115,20 @@ jobs:
           FIRMWAREKIT="$LIGHTTOUCH_APP/Contents/MacOS/firmwarekit"
           CATALOG="$LIGHTTOUCH_CATALOG"
           HELPER="$LIGHTTOUCH_APP/Contents/MacOS/LightTouchDevice"
-          GUEST_ARCHIVE="$LIGHTTOUCH_APP/Contents/Resources/Guest/guest.aar"
+          GUEST_ARCHIVE="$LIGHTTOUCH_GUEST_ARCHIVE"
           GUEST_DIR="$RUNNER_TEMP/iphone4/guest"
-          GUEST_TOOLS="$GUEST_DIR/guest-tools"
+          GUEST_TOOLS="$GUEST_DIR/ipad-guest-tools"
           OUT="$RUNNER_TEMP/iphone4/output/n90ap-11D257"
 
           mkdir -p "$(dirname "$OUT")" "$GUEST_DIR"
           /usr/bin/aa extract -i "$GUEST_ARCHIVE" -d "$GUEST_DIR" \
             2>&1 | tee "$RUNNER_TEMP/iphone4/guest-extract.log"
-          test -d "$GUEST_TOOLS"
+          if [ ! -d "$GUEST_TOOLS" ]; then
+            echo "ERROR: guest.aar was extracted, but ipad-guest-tools is missing."
+            echo "Extracted guest archive contents:"
+            find "$GUEST_DIR" -maxdepth 4 -print | head -300
+            exit 1
+          fi
           FIRMWAREKIT_IBOOT_PATCHER="$LIGHTTOUCH_APP/Contents/MacOS/iBoot32Patcher" \
             "$FIRMWAREKIT" create \
               --catalog "$CATALOG" \
