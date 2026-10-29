@@ -120,6 +120,8 @@ jobs:
           GUEST_DIR="$RUNNER_TEMP/iphone4/guest"
           GUEST_TOOLS="$GUEST_DIR/guest-tools"
           OUT="$RUNNER_TEMP/iphone4/output/n90ap-11D257"
+          PACKED_BASE="$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase"
+          PACKED_ZIP="$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase.zip"
 
           mkdir -p "$(dirname "$OUT")" "$GUEST_DIR"
           /usr/bin/aa extract -i "$GUEST_ARCHIVE" -d "$GUEST_DIR" \
@@ -144,12 +146,16 @@ jobs:
           test -f "$OUT/device.lock.json"
           "$FIRMWAREKIT" pack-base \
             --base "$OUT" \
-            --out "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase" \
+            --out "$PACKED_BASE" \
             2>&1 | tee "$RUNNER_TEMP/iphone4/pack.log"
 
-          test -s "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase"
-          shasum -a 256 "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase" \
-            > "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase.sha256"
+          # pack-base intentionally produces an .itbase directory (index.json + files/), not a single file.
+          test -s "$PACKED_BASE/index.json"
+          test -d "$PACKED_BASE/files"
+          ditto -c -k --sequesterRsrc --keepParent "$PACKED_BASE" "$PACKED_ZIP"
+          test -s "$PACKED_ZIP"
+          shasum -a 256 "$PACKED_ZIP" \
+            > "$RUNNER_TEMP/iphone4/output/n90ap-11D257.itbase.zip.sha256"
 
           cat > "$RUNNER_TEMP/iphone4/output/BUILD-INFO.txt" <<EOF
           Device: iPhone 4 GSM (iPhone3,1)
@@ -159,6 +165,7 @@ jobs:
           Catalog ID: n90ap-11D257
           Preparation tool: upstream LightTouch firmwarekit
           IPSW SHA-1: 81da17b3e893a61508fe203849b7e1f60e2127b1
+          Output: n90ap-11D257.itbase directory, also distributed as n90ap-11D257.itbase.zip
           Note: Experimental firmware preparation; artifact is not proof of successful boot.
           EOF
 
@@ -167,8 +174,8 @@ jobs:
         with:
           name: Un1box-iPhone4-iOS7.1.2-n90ap-11D257
           path: |
-            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase
-            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase.sha256
+            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase.zip
+            ${{ runner.temp }}/iphone4/output/n90ap-11D257.itbase.zip.sha256
             ${{ runner.temp }}/iphone4/output/BUILD-INFO.txt
             ${{ runner.temp }}/iphone4/create.log
             ${{ runner.temp }}/iphone4/pack.log
