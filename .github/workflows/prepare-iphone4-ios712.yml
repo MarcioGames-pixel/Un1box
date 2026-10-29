@@ -69,8 +69,9 @@ jobs:
           ACTUAL_SHA256=$(shasum -a 256 LightTouchMac-universal.zip | awk '{print $1}')
           EXPECTED_SHA256=b9d2293675df092abef4eb3af9ac0da334ff84868bea7496d2a1f8b1a481f515
           test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
-          ditto -x -k LightTouchMac-universal.zip extracted
-          APP=$(find extracted -type d -name "Light Touch.app" -print -quit)
+          EXTRACTED="$RUNNER_TEMP/lighttouch/extracted"
+          ditto -x -k LightTouchMac-universal.zip "$EXTRACTED"
+          APP=$(find "$EXTRACTED" -type d -name "Light Touch.app" -print -quit)
           test -n "$APP"
           test -x "$APP/Contents/MacOS/firmwarekit"
           test -x "$APP/Contents/MacOS/LightTouchDevice"
